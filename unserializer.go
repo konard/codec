@@ -159,11 +159,11 @@ func (u *Unserializer) decodeValue(t reflect.Type, v reflect.Value, parentContai
 		case reflect.Func:
 			u.decodeFunc(v)
 		case reflect.Array:
-			//u.decodeArray(t.Elem(), v)
+			u.decodeArray(v)
 		case reflect.Slice:
-			//u.decodeList(t.Elem(), v)
+			u.decodeSlice(v)
 		case reflect.Map:
-			//u.decodeMap(t.Key(), t.Elem(), v)
+			u.decodeMap(v)
 		case reflect.Struct:
 			u.decodeStruct(v)
 		case reflect.Interface:
@@ -288,81 +288,51 @@ func (u *Unserializer) decodeFunc(v reflect.Value) {
 	}
 }
 
-func (u *Unserializer) decodeList(elemType reflect.Type, v reflect.Value) {
-	/*meta := u.readByte()
-	if meta&meta_nil != 0 {
+func (u *Unserializer) decodeArray(v reflect.Value) {
+	_ = u.readByte() // skip container mark
+	for i, count := 0, v.Len(); i < count; i++ {
+		elem := v.Index(i)
+		u.decodeContainer(elem.Type(), elem)
+	}
+}
+
+func (u *Unserializer) decodeSlice(v reflect.Value) {
+	if u.readByte() == meta_nil {
 		return
 	}
 	length := u.decodeLength()
-	if meta&meta_fixed == 0 {
-		v.Set(reflect.MakeSlice(v.Type(), length, length))
+	v.Set(reflect.MakeSlice(v.Type(), length, length))
+	_ = u.readByte() // skip container mark
+	for i := 0; i < length; i++ {
+		elem := v.Index(i)
+		u.decodeContainer(elem.Type(), elem)
 	}
-	var refs []int
-	refcnt := u.decodeLength()
-	for i := 0; i < refcnt; i++ {
-		refs = append(refs, u.decodeLength())
-	}
-	for i, j := 0, 0; i < length; i++ {
-		elemValue := v.Index(i)
-		if j < refcnt && refs[j] == i {
-			u.saveRef(elemValue)
-			fmt.Printf("cnt=%d: %s\n", u.cnt, reflex.NameOf(elemType))
-			ref, cnt := u.decodeReference()
-			elemValue.Set(ref)
-
-			var value reflect.Value = elemValue
-			for k := uint32(cnt - 1); k != 0; k-- {
-				ref := u.refs[k]
-				switch ref.Kind() {
-				case reflect.Pointer:
-					ref.Set(u.ptrTo(ref.Type().Elem(), elemValue))
-				default:
-					ref.Set(value)
-				}
-				value = ref
-			}
-
-			j++
-		} else {
-			u.populateValue(elemType, elemValue)
-		}
-	}*/
 }
 
-func (u *Unserializer) decodeMap(keyType reflect.Type, valueType reflect.Type, v reflect.Value) {
-	/*meta := u.readByte()
-	if meta&meta_nil != 0 {
+func (u *Unserializer) decodeMap(v reflect.Value) {
+	if u.readByte() == meta_nil {
 		return
 	}
 	length := u.decodeLength()
 	v.Set(reflect.MakeMapWithSize(v.Type(), length))
-	var refs []int
-	var reftps []byte
-	refcnt := u.decodeLength()
-	for i := 0; i < refcnt; i++ {
-		reftps = append(reftps, u.readByte())
-		refs = append(refs, u.decodeLength())
-	}
-	var key, value reflect.Value
-	for i, j := 0, 0; i < length; i++ {
-		if j < refcnt && refs[j] == i {
-			if reftps[j]&0b01 != 0 {
-				key, _ = u.decodeReference()
-			} else {
-				key = u.decodeValue(keyType)
-			}
-			if reftps[j]&0b10 != 0 {
-				value, _ = u.decodeReference()
-			} else {
-				value = u.decodeValue(valueType)
-			}
-			j++
-		} else {
-			key = u.decodeValue(keyType)
-			value = u.decodeValue(valueType)
-		}
+	t := v.Type()
+	keyType := t.Key()
+	valueType := t.Elem()
+	// Map keys and values are encoded without type information
+	// We need to use the map's type to decode them
+	for i := 0; i < length; i++ {
+		key := reflex.Zero(keyType)
+		u.id++
+		u.values[u.id-1] = key
+		u.decodeValue(keyType, key, u.id-2)
+
+		value := reflex.Zero(valueType)
+		u.id++
+		u.values[u.id-1] = value
+		u.decodeValue(valueType, value, u.id-2)
+
 		v.SetMapIndex(key, value)
-	}*/
+	}
 }
 
 func (u *Unserializer) decodeStruct(v reflect.Value) {

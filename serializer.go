@@ -144,15 +144,14 @@ func (s *Serializer) traverse(parentId int, v reflect.Value) {
 }
 
 func (s *Serializer) traverseList(v reflect.Value, id int) {
-	/*length := v.Len()
-	itemId := s.nextId
-	s.nextId += length
+	length := v.Len()
 	for i := 0; i < length; i++ {
 		elem := v.Index(i)
-		s.registerContainer(elem, itemId, id)
-		s.traverse(id, elem)
-		itemId++
-	}*/
+		elemId := s.nextNodeId()
+		if s.registerContainer(elem, elemId, id) {
+			s.traverse(elemId, elem)
+		}
+	}
 }
 
 func (s *Serializer) traverseMap(v reflect.Value, id int) {
@@ -275,7 +274,7 @@ func (s *Serializer) encodeValue(v reflect.Value, nodeId int) []byte {
 	case reflect.Array:
 		return s.encodeArray(nodeId)
 	case reflect.Slice:
-		return s.encodeSlice(nodeId)
+		return s.encodeSlice(v, nodeId)
 	case reflect.Map:
 		return s.encodeMap(v, nodeId)
 	case reflect.Struct:
@@ -396,8 +395,17 @@ func (s *Serializer) encodeArray(nodeId int) []byte {
 	return b
 }
 
-func (s *Serializer) encodeSlice(nodeId int) []byte {
-	return nil
+func (s *Serializer) encodeSlice(v reflect.Value, nodeId int) []byte {
+	if v.IsNil() {
+		return []byte{meta_nil}
+	}
+	b := append([]byte{meta_nonil}, c2b(v.Len())...)
+	b = append(b, meta_cntr)
+	for _, cntrId := range s.values.children(nodeId) {
+		s.values.visit(cntrId)
+		b = append(b, s.encodeContainer(cntrId)...)
+	}
+	return b
 }
 
 func (s *Serializer) encodeMap(v reflect.Value, nodeId int) []byte {
