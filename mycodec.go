@@ -61,10 +61,11 @@ func (r *TypeRegistry) registerType(t reflect.Type) uint32 {
 
 	// Check if we're currently registering this type (cyclic type reference)
 	if r.registering[t] {
-		// Reserve an ID for this type and continue
+		// Reserve an ID for cyclic reference and return immediately
+		// The actual type will be registered when the recursion unwinds
 		id := r.nextID
 		r.nextID++
-		r.types = append(r.types, t)
+		r.types = append(r.types, nil) // placeholder
 		r.typeToID[t] = id
 		r.idToType[id] = t
 		return id
@@ -94,6 +95,14 @@ func (r *TypeRegistry) registerType(t reflect.Type) uint32 {
 		}
 	}
 
+	// Check again if type was registered during dependency registration (cyclic case)
+	if id, exists := r.typeToID[t]; exists {
+		// Update the placeholder with actual type
+		r.types[id] = t
+		return id
+	}
+
+	// Now assign the ID (dependencies have been registered)
 	id := r.nextID
 	r.nextID++
 	r.types = append(r.types, t)
@@ -260,9 +269,14 @@ func (s *Serializer) encodeTypeInfo(buf *bytes.Buffer, t reflect.Type) {
 		binary.Write(buf, binary.LittleEndian, keyID)
 		binary.Write(buf, binary.LittleEndian, valID)
 
-	case reflect.Ptr, reflect.Interface:
+	case reflect.Ptr:
 		elemID, _ := s.registry.getTypeID(t.Elem())
 		binary.Write(buf, binary.LittleEndian, elemID)
+
+	case reflect.Interface:
+		// Empty interface has no element type
+		// For now, we just write a marker (0xFFFFFFFF)
+		binary.Write(buf, binary.LittleEndian, uint32(0xFFFFFFFF))
 
 	case reflect.Struct:
 		numFields := t.NumField()
@@ -336,7 +350,7 @@ func (s *Serializer) encodeValue(v reflect.Value) {
 		s.buf.WriteByte(val)
 
 	case reflect.Int:
-		binary.Write(s.buf, binary.LittleEndian, int(v.Int()))
+		binary.Write(s.buf, binary.LittleEndian, v.Int())
 	case reflect.Int8:
 		s.buf.WriteByte(byte(v.Int()))
 	case reflect.Int16:
@@ -347,7 +361,7 @@ func (s *Serializer) encodeValue(v reflect.Value) {
 		binary.Write(s.buf, binary.LittleEndian, v.Int())
 
 	case reflect.Uint:
-		binary.Write(s.buf, binary.LittleEndian, uint(v.Uint()))
+		binary.Write(s.buf, binary.LittleEndian, v.Uint())
 	case reflect.Uint8:
 		s.buf.WriteByte(byte(v.Uint()))
 	case reflect.Uint16:
@@ -357,7 +371,7 @@ func (s *Serializer) encodeValue(v reflect.Value) {
 	case reflect.Uint64:
 		binary.Write(s.buf, binary.LittleEndian, v.Uint())
 	case reflect.Uintptr:
-		binary.Write(s.buf, binary.LittleEndian, uintptr(v.Uint()))
+		binary.Write(s.buf, binary.LittleEndian, uint64(v.Uint()))
 
 	case reflect.Float32:
 		binary.Write(s.buf, binary.LittleEndian, float32(v.Float()))
@@ -709,12 +723,19 @@ func (d *Deserializer) decodeTypeInfo() error {
 		if err := d.readUint32(&elemID); err != nil {
 			return err
 		}
-		elemType, ok := d.registry.getType(elemID)
-		if !ok {
-			return fmt.Errorf("unknown element type ID: %d", elemID)
+		// 0xFFFFFFFF is a marker for empty interface
+		if elemID == 0xFFFFFFFF {
+			// Use interface{} type
+			var iface interface{}
+			t = reflect.TypeOf(&iface).Elem()
+		} else {
+			elemType, ok := d.registry.getType(elemID)
+			if !ok {
+				return fmt.Errorf("unknown element type ID: %d", elemID)
+			}
+			// For interfaces, we store the concrete type
+			t = elemType
 		}
-		// For interfaces, we store the concrete type
-		t = elemType
 
 	case reflect.Struct:
 		var numFields uint32
