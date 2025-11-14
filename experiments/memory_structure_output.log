@@ -1,0 +1,49 @@
+
+=== Testing Slice Backing Array ===
+Original slice1: [3 4 5] (cap=8, len=3)
+Original slice2: [6 7 8] (cap=5, len=3)
+Original backing: [1 2 3 4 5 6 7 8 9 10]
+slice1 data ptr: c000024100
+slice2 data ptr: c000024118
+backing data ptr: c0000240f0
+✓ slice1 shares backing array with backing
+✓ slice2 shares backing array with backing
+
+=== Testing Pointer to Slice Element ===
+Original slice: [1 2 3 4 5]
+Pointer value: 3 (address: 0xc000020130)
+Element address: 0xc000020130
+✓ Pointer points to slice element
+After modification via pointer: [1 2 100 4 5]
+
+=== Testing Pointer Chains ===
+value: 42 (addr: 0xc0000121c8)
+ptr1: 0xc0000121c8 -> 42 (addr: 0xc00004c028)
+ptr2: 0xc00004c028 -> 0xc0000121c8 -> 42 (addr: 0xc00004c030)
+ptr3: 0xc00004c030 -> 0xc00004c028 -> 0xc0000121c8 -> 42
+✓ Pointer chain is correct
+
+=== Testing Struct with Pointers ===
+Node.Value: 42
+Node.Slice: [1 2 3]
+Node.Ptr: 0xc00002a068 -> 2
+Slice[1] addr: 0xc00002a068
+✓ Pointer points to slice element within struct
+
+=== Testing Multiple References to Same Slice ===
+Slice1 data ptr: c000020150
+Slice2 data ptr: c000020150
+*Ptr data ptr: c000020150
+✓ All three references point to the same backing array
+After Slice1[0] = 100:
+  Slice1: [100 2 3 4 5]
+  Slice2: [100 2 3 4 5]
+  *Ptr: [100 2 3 4 5]
+
+=== Summary ===
+These are the memory structure patterns that MUST be preserved during serialization/deserialization:
+1. Slices that share the same backing array must continue to share it after deserialization
+2. Pointers to slice elements must point to the actual deserialized slice elements
+3. Pointer chains must maintain their structure (ptr -> ptr -> ptr -> value)
+4. Structs with pointers to their own fields must maintain those relationships
+5. Multiple references to the same slice must all reference the same slice after deserialization
